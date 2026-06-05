@@ -1,5 +1,10 @@
 # AxionGraph
 
+<p align="center">
+  <img src="docs/assets/logo.png" alt="AxionGraph logo" width="240">
+</p>
+
+
 Invisible events. Replayable graphs. AxionGraph is an append-only execution-graph event model and deterministic reducer — provider-agnostic, storage is a port.
 
 AxionGraph is a primitive with TypeScript and Python implementations maintained in one public repository. The shared repo keeps the public contract, fixtures, issues, and release history aligned across languages.
