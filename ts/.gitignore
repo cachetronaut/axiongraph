@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Test / coverage artifacts
+coverage/
+*.db
+*.db-journal
+*.sqlite
+
+# Environment & secrets (never commit these to a public repo)
+.env
+.env.*
+!.env.example
+
+# Local npm/pnpm config (may hold registry tokens); never commit to a public repo.
+.npmrc
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Packaged tarballs
+*.tgz
+
+# Logs and OS noise
+*.log
+.DS_Store

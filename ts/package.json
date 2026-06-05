@@ -1,0 +1,146 @@
+{
+  "name": "axiongraph",
+  "version": "0.0.5",
+  "description": "Invisible events. Replayable graphs. AxionGraph is an append-only execution-graph event model and deterministic reducer — provider-agnostic, storage is a port.",
+  "keywords": [
+    "axiongraph",
+    "graph-events",
+    "graph",
+    "graph-state",
+    "execution-graph",
+    "dag",
+    "directed-graph",
+    "event-sourcing",
+    "event-store",
+    "event-log",
+    "event-stream",
+    "append-only",
+    "events",
+    "reducer",
+    "fold",
+    "deterministic",
+    "replay",
+    "replayable",
+    "immutable",
+    "snapshot",
+    "state-management",
+    "provenance",
+    "lineage",
+    "audit",
+    "audit-trail",
+    "traceability",
+    "observability",
+    "tracing",
+    "trace",
+    "telemetry",
+    "agents",
+    "ai-agents",
+    "agentic",
+    "multi-agent",
+    "agent-orchestration",
+    "orchestration",
+    "workflow",
+    "workflows",
+    "pipeline",
+    "tool-use",
+    "tool-calls",
+    "llm",
+    "ai",
+    "genai",
+    "langgraph",
+    "graph-store",
+    "sqlite",
+    "node-sqlite",
+    "in-memory",
+    "typescript",
+    "esm"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cachetronaut/axiongraph.git"
+  },
+  "homepage": "https://github.com/cachetronaut/axiongraph#readme",
+  "bugs": {
+    "url": "https://github.com/cachetronaut/axiongraph/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./store-local": {
+      "types": "./dist/store-local.d.ts",
+      "import": "./dist/store-local.js"
+    },
+    "./store-postgres": {
+      "types": "./dist/store-postgres.d.ts",
+      "import": "./dist/store-postgres.js"
+    },
+    "./store-convex": {
+      "types": "./dist/store-convex.d.ts",
+      "import": "./dist/store-convex.js"
+    },
+    "./store-convex/server": {
+      "types": "./dist/store-convex/server.d.ts",
+      "import": "./dist/store-convex/server.js"
+    },
+    "./store-convex/convex.config": "./dist/store-convex/component/convex.config.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "tsup",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm verify && pnpm build",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "verify": "pnpm check && pnpm typecheck && pnpm test"
+  },
+  "pnpm": {
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "darwin"
+      ],
+      "cpu": [
+        "current",
+        "arm64"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "convex": ">=1.17",
+    "pg": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "convex": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.0.6",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
