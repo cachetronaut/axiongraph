@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   verify:
@@ -12,8 +13,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Checkout dockbay sibling
-        run: git clone --depth 1 https://github.com/cachetronaut/dockbay.git ../dockbay
       - uses: pnpm/action-setup@v4
         if: hashFiles('ts/package.json') != ''
         with:
@@ -24,9 +23,6 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: ts/pnpm-lock.yaml
-      - name: Install dockbay TypeScript dependencies
-        working-directory: ../dockbay/ts
-        run: pnpm install --frozen-lockfile
       - name: Install TypeScript dependencies
         if: hashFiles('ts/package.json') != ''
         working-directory: ts
@@ -39,10 +35,13 @@ jobs:
         if: hashFiles('ts/package.json') != ''
         working-directory: ts
         run: pnpm build
-      - name: TypeScript publish dry run
+      - name: Verify TypeScript package
         if: hashFiles('ts/package.json') != ''
         working-directory: ts
-        run: npm pack --dry-run
+        run: pnpm pack:check
+      - name: Checkout Dockbay for Python sources
+        if: hashFiles('py/pyproject.toml') != ''
+        run: git clone --depth 1 https://github.com/cachetronaut/dockbay.git ../dockbay
       - uses: astral-sh/setup-uv@v5
         if: hashFiles('py/pyproject.toml') != ''
         with:

@@ -5,12 +5,7 @@ import {
   type FunctionReturnType,
   makeFunctionReference,
 } from 'convex/server';
-import type {
-  Row,
-  ScanOptions,
-  StoreDriver,
-  Transaction,
-} from '../../../../../dockbay/ts/packages/core/src/index';
+import type { Row, ScanOptions, StoreDriver, Transaction } from 'dockbay';
 
 /**
  * The one-shot surface this adapter needs: run a mutation or query by reference. Declared
