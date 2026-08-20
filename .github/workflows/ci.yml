@@ -39,6 +39,9 @@ jobs:
         if: hashFiles('ts/package.json') != ''
         working-directory: ts
         run: pnpm pack:check
+      - name: Checkout Dockbay for Python sources
+        if: hashFiles('py/pyproject.toml') != ''
+        run: git clone --depth 1 https://github.com/cachetronaut/dockbay.git ../dockbay
       - uses: astral-sh/setup-uv@v5
         if: hashFiles('py/pyproject.toml') != ''
         with:
