@@ -23,6 +23,7 @@ permissions:
   contents: write
   id-token: write
   pull-requests: write
+  statuses: write
 
 concurrency:
   group: npm-release-main
@@ -127,6 +128,16 @@ jobs:
             exit 1
           fi
           gh run watch "$RUN_ID" --exit-status
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          CI_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+          for check_context in verify gitleaks; do
+            gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/statuses/${RELEASE_SHA}" \
+              -f state=success \
+              -f context="$check_context" \
+              -f description="Passed in release CI run ${RUN_ID}" \
+              -f target_url="$CI_URL" >/dev/null
+          done
       - name: Merge release pull request and tag
         env:
           GH_TOKEN: ${{ github.token }}
