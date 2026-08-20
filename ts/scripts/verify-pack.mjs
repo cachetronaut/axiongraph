@@ -9,7 +9,8 @@ const packOutput = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore
   cwd: packageRoot,
   encoding: 'utf8',
 });
-const [pack] = JSON.parse(packOutput);
+const packResult = JSON.parse(packOutput);
+const pack = Array.isArray(packResult) ? packResult[0] : packResult;
 
 if (!pack?.files) {
   throw new Error('npm pack did not report the package file list');
