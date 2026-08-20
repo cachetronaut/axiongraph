@@ -1,12 +1,12 @@
 import { type GraphEvent, type GraphState, type GraphStore, reduceAll } from '@axiongraph/core';
-import { Pool, type PoolClient } from 'pg';
 import {
   canonicalize,
   type Row,
   type ScanOptions,
   type StoreDriver,
   type Transaction,
-} from '../../../../../dockbay/ts/packages/core/src/index';
+} from 'dockbay';
+import { Pool, type PoolClient } from 'pg';
 
 /** Plain or schema-unqualified SQL identifier; interpolated into DDL, so it must be validated. */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
