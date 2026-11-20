@@ -69,6 +69,24 @@ describe('reduce', () => {
     expect(anomalies[0]?.kind).toBe('update_unknown_node');
   });
 
+  it('copies only the map an event changes', () => {
+    const start = emptyState(RUN);
+    const created = reduce(start, nodeCreated(1, 'a', 'A'));
+    expect(created.edges).toBe(start.edges);
+    expect(created.nodes).not.toBe(start.nodes);
+    const dropped = reduce(created, {
+      id: 'e2',
+      runId: RUN,
+      seq: 2,
+      ts: '2026-06-03T00:00:00.000Z',
+      type: 'edge_updated',
+      edge: { id: 'ghost', status: 'completed' },
+    });
+    expect(dropped.nodes).toBe(created.nodes);
+    expect(dropped.edges).toBe(created.edges);
+    expect(dropped.seq).toBe(2);
+  });
+
   it('is order-independent in reduceAll (D3)', () => {
     const a = nodeCreated(1, 'a', 'A');
     const b = nodeCreated(2, 'b', 'B');

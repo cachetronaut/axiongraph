@@ -17,13 +17,6 @@ export function emptyState(runId: string): GraphState {
   return { runId, nodes: new Map(), edges: new Map(), seq: 0 };
 }
 
-const EVENT_TYPES: ReadonlySet<string> = new Set([
-  'node_created',
-  'node_updated',
-  'edge_created',
-  'edge_updated',
-]);
-
 /** Whether the event belongs to this run and comes after `seq` (spec D3). */
 function admit(
   runId: string,
@@ -42,44 +35,46 @@ function admit(
   return true;
 }
 
+type NodeEvent = Extract<GraphEvent, { type: 'node_created' | 'node_updated' }>;
+type EdgeEvent = Extract<GraphEvent, { type: 'edge_created' | 'edge_updated' }>;
+
 /**
- * Apply one in-order event for the run to `nodes` and `edges` in place and return the
- * resulting sequence. The single home of the reducer's rules, shared by `reduce` (on fresh
- * copies) and `reduceAll` (on one private copy for the whole fold).
+ * Apply one admitted node event to `nodes` in place. Shared by `reduce` (on a fresh copy)
+ * and `reduceAll` (on one private map for the whole fold).
  */
-function applyEvent(
+function applyNode(
   nodes: Map<string, NodePayload>,
-  edges: Map<string, EdgePayload>,
-  seq: number,
-  event: GraphEvent,
+  event: NodeEvent,
   report: ReduceOptions['onAnomaly'],
-): number {
-  switch (event.type) {
-    case 'node_created':
-      nodes.set(event.node.id, event.node);
-      return event.seq;
-    case 'node_updated': {
-      const existing = nodes.get(event.node.id);
-      if (existing === undefined) report?.({ kind: 'update_unknown_node', event });
-      else nodes.set(existing.id, { ...existing, ...event.node } as NodePayload);
-      return event.seq;
-    }
-    case 'edge_created':
-      edges.set(event.edge.id, event.edge);
-      return event.seq;
-    case 'edge_updated': {
-      const existing = edges.get(event.edge.id);
-      if (existing === undefined) report?.({ kind: 'update_unknown_edge', event });
-      else edges.set(existing.id, { ...existing, ...event.edge } as EdgePayload);
-      return event.seq;
-    }
+): void {
+  if (event.type === 'node_created') {
+    nodes.set(event.node.id, event.node);
+    return;
   }
-  return seq;
+  const existing = nodes.get(event.node.id);
+  if (existing === undefined) report?.({ kind: 'update_unknown_node', event });
+  else nodes.set(existing.id, { ...existing, ...event.node } as NodePayload);
+}
+
+/** Apply one admitted edge event to `edges` in place, as `applyNode` does nodes. */
+function applyEdge(
+  edges: Map<string, EdgePayload>,
+  event: EdgeEvent,
+  report: ReduceOptions['onAnomaly'],
+): void {
+  if (event.type === 'edge_created') {
+    edges.set(event.edge.id, event.edge);
+    return;
+  }
+  const existing = edges.get(event.edge.id);
+  if (existing === undefined) report?.({ kind: 'update_unknown_edge', event });
+  else edges.set(existing.id, { ...existing, ...event.edge } as EdgePayload);
 }
 
 /**
  * Apply one event. Pure and deterministic (spec D5): no clock, no I/O. Events for a
  * different run, or with a non-increasing `seq`, are ignored idempotently (spec D3).
+ * Only the map the event changes is copied; an update to an unknown id copies neither.
  */
 export function reduce(
   state: GraphState,
@@ -88,30 +83,59 @@ export function reduce(
 ): GraphState {
   const report = options.onAnomaly;
   if (!admit(state.runId, state.seq, event, report)) return state;
-  if (!EVENT_TYPES.has(event.type)) return state;
-  const nodes = new Map(state.nodes);
-  const edges = new Map(state.edges);
-  const seq = applyEvent(nodes, edges, state.seq, event, report);
-  return { runId: state.runId, nodes, edges, seq };
+  switch (event.type) {
+    case 'node_created':
+    case 'node_updated': {
+      if (event.type === 'node_updated' && !state.nodes.has(event.node.id)) {
+        report?.({ kind: 'update_unknown_node', event });
+        return { runId: state.runId, nodes: state.nodes, edges: state.edges, seq: event.seq };
+      }
+      const nodes = new Map(state.nodes);
+      applyNode(nodes, event, report);
+      return { runId: state.runId, nodes, edges: state.edges, seq: event.seq };
+    }
+    case 'edge_created':
+    case 'edge_updated': {
+      if (event.type === 'edge_updated' && !state.edges.has(event.edge.id)) {
+        report?.({ kind: 'update_unknown_edge', event });
+        return { runId: state.runId, nodes: state.nodes, edges: state.edges, seq: event.seq };
+      }
+      const edges = new Map(state.edges);
+      applyEdge(edges, event, report);
+      return { runId: state.runId, nodes: state.nodes, edges, seq: event.seq };
+    }
+  }
+  return state;
 }
 
 /**
  * Fold an event log into state. Sorts by `seq` first, so arrival order does not matter.
  * Equivalent to folding with `reduce` one event at a time, but linear in the log's length:
- * every event is applied to one private copy of the maps instead of copying them per event.
+ * every event is applied to one private pair of maps instead of copying them per event.
  */
 export function reduceAll(
   runId: string,
   events: Iterable<GraphEvent>,
   options: ReduceOptions = {},
 ): GraphState {
+  const report = options.onAnomaly;
   const sorted = [...events].sort((left, right) => left.seq - right.seq);
   const nodes = new Map<string, NodePayload>();
   const edges = new Map<string, EdgePayload>();
   let seq = 0;
   for (const event of sorted) {
-    if (admit(runId, seq, event, options.onAnomaly)) {
-      seq = applyEvent(nodes, edges, seq, event, options.onAnomaly);
+    if (!admit(runId, seq, event, report)) continue;
+    switch (event.type) {
+      case 'node_created':
+      case 'node_updated':
+        applyNode(nodes, event, report);
+        seq = event.seq;
+        break;
+      case 'edge_created':
+      case 'edge_updated':
+        applyEdge(edges, event, report);
+        seq = event.seq;
+        break;
     }
   }
   return { runId, nodes, edges, seq };

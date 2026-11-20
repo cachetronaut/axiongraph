@@ -77,6 +77,25 @@ def test_drops_an_update_to_an_unknown_node_advances_seq_and_reports_it() -> Non
     assert anomalies[0].kind == "update_unknown_node"
 
 
+def test_copies_only_the_map_an_event_changes() -> None:
+    start = empty_state(RUN)
+    created = reduce(start, node_created(1, "a", "A"))
+    assert created.edges is start.edges
+    assert created.nodes is not start.nodes
+    unknown: GraphEvent = {
+        "id": "e2",
+        "runId": RUN,
+        "seq": 2,
+        "ts": "2026-06-03T00:00:00.000Z",
+        "type": "edge_updated",
+        "edge": {"id": "ghost", "status": "completed"},
+    }
+    dropped = reduce(created, unknown)
+    assert dropped.nodes is created.nodes
+    assert dropped.edges is created.edges
+    assert dropped.seq == 2
+
+
 def test_is_order_independent_in_reduce_all() -> None:
     a = node_created(1, "a", "A")
     b = node_created(2, "b", "B")
