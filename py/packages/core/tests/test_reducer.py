@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from axiongraph_core import (
     Anomaly,
     GraphEvent,
@@ -75,6 +77,25 @@ def test_drops_an_update_to_an_unknown_node_advances_seq_and_reports_it() -> Non
     assert anomalies[0].kind == "update_unknown_node"
 
 
+def test_copies_only_the_map_an_event_changes() -> None:
+    start = empty_state(RUN)
+    created = reduce(start, node_created(1, "a", "A"))
+    assert created.edges is start.edges
+    assert created.nodes is not start.nodes
+    unknown: GraphEvent = {
+        "id": "e2",
+        "runId": RUN,
+        "seq": 2,
+        "ts": "2026-06-03T00:00:00.000Z",
+        "type": "edge_updated",
+        "edge": {"id": "ghost", "status": "completed"},
+    }
+    dropped = reduce(created, unknown)
+    assert dropped.nodes is created.nodes
+    assert dropped.edges is created.edges
+    assert dropped.seq == 2
+
+
 def test_is_order_independent_in_reduce_all() -> None:
     a = node_created(1, "a", "A")
     b = node_created(2, "b", "B")
@@ -93,3 +114,75 @@ def test_validate_accepts_known_and_rejects_unknown_kind() -> None:
         "node": {"id": "a", "kind": "wizard", "label": "A"},
     }
     assert validate(bad, example_vocabulary).ok is False
+
+
+def _random_log(seed: int, length: int) -> list[GraphEvent]:
+    """A shuffled log mixing creates, updates, updates to unknown ids, other runs and repeats."""
+    import random
+
+    rng = random.Random(seed)
+    ids = [f"n{index}" for index in range(max(2, length // 4))]
+    events: list[GraphEvent] = []
+    for seq in range(1, length + 1):
+        node_id, other = rng.choice(ids), rng.choice(ids)
+        choice = rng.randrange(6)
+        base: dict[str, Any] = {
+            "id": f"e{seq}",
+            "runId": RUN if choice else "run_other",
+            "seq": seq,
+            "ts": "2026-06-03T00:00:00.000Z",
+        }
+        if choice in (1, 2):
+            body: dict[str, Any] = {
+                "type": "node_created",
+                "node": {"id": node_id, "kind": "agent", "label": f"L{seq}"},
+            }
+        elif choice == 3:
+            body = {"type": "node_updated", "node": {"id": node_id, "label": f"U{seq}"}}
+        elif choice == 4:
+            body = {
+                "type": "edge_created",
+                "edge": {
+                    "id": f"{node_id}-{other}",
+                    "kind": "calls",
+                    "from": node_id,
+                    "to": other,
+                    "status": "active",
+                },
+            }
+        else:
+            body = {
+                "type": "edge_updated",
+                "edge": {"id": f"{node_id}-{other}", "status": "completed"},
+            }
+        events.append(cast("GraphEvent", {**base, **body}))
+        if rng.random() < 0.1:  # a repeated seq, which the fold must ignore
+            events.append(cast("GraphEvent", {**events[-1], "id": f"dup{seq}"}))
+    rng.shuffle(events)
+    return events
+
+
+def test_reduce_all_matches_folding_reduce_one_event_at_a_time() -> None:
+    for seed in range(25):
+        events = _random_log(seed, 300)
+        stepwise_anomalies: list[Anomaly] = []
+        state = empty_state(RUN)
+        for event in sorted(events, key=lambda candidate: candidate["seq"]):
+            state = reduce(state, event, stepwise_anomalies.append)
+        folded_anomalies: list[Anomaly] = []
+        folded = reduce_all(RUN, events, folded_anomalies.append)
+        assert folded == state
+        assert folded_anomalies == stepwise_anomalies
+
+
+def test_reduce_all_does_not_share_or_mutate_its_inputs() -> None:
+    import json
+
+    events = _random_log(7, 60)
+    before = json.dumps(events, sort_keys=True)
+    first = reduce_all(RUN, events)
+    second = reduce_all(RUN, events)
+    assert json.dumps(events, sort_keys=True) == before
+    assert first == second
+    first.nodes.clear()
+    assert reduce_all(RUN, events).nodes == second.nodes

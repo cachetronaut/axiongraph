@@ -69,6 +69,24 @@ describe('reduce', () => {
     expect(anomalies[0]?.kind).toBe('update_unknown_node');
   });
 
+  it('copies only the map an event changes', () => {
+    const start = emptyState(RUN);
+    const created = reduce(start, nodeCreated(1, 'a', 'A'));
+    expect(created.edges).toBe(start.edges);
+    expect(created.nodes).not.toBe(start.nodes);
+    const dropped = reduce(created, {
+      id: 'e2',
+      runId: RUN,
+      seq: 2,
+      ts: '2026-06-03T00:00:00.000Z',
+      type: 'edge_updated',
+      edge: { id: 'ghost', status: 'completed' },
+    });
+    expect(dropped.nodes).toBe(created.nodes);
+    expect(dropped.edges).toBe(created.edges);
+    expect(dropped.seq).toBe(2);
+  });
+
   it('is order-independent in reduceAll (D3)', () => {
     const a = nodeCreated(1, 'a', 'A');
     const b = nodeCreated(2, 'b', 'B');
@@ -89,5 +107,79 @@ describe('validate', () => {
       node: { id: 'a', kind: 'wizard', label: 'A' },
     };
     expect(validate(bad, exampleVocabulary).ok).toBe(false);
+  });
+});
+
+/** A seeded, shuffled log mixing creates, updates, updates to unknown ids, other runs and repeats. */
+function randomLog(seed: number, length: number): GraphEvent[] {
+  let state = seed + 1;
+  const next = () => {
+    state = (state * 16807) % 2147483647;
+    return state / 2147483647;
+  };
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
+  const ids = Array.from(
+    { length: Math.max(2, Math.floor(length / 4)) },
+    (_, index) => `n${index}`,
+  );
+  const events: GraphEvent[] = [];
+  for (let seq = 1; seq <= length; seq += 1) {
+    const id = pick(ids);
+    const other = pick(ids);
+    const choice = Math.floor(next() * 6);
+    const base = {
+      id: `e${seq}`,
+      runId: choice ? RUN : 'run_other',
+      seq,
+      ts: '2026-06-03T00:00:00.000Z',
+    };
+    if (choice === 1 || choice === 2) {
+      events.push({ ...base, type: 'node_created', node: { id, kind: 'agent', label: `L${seq}` } });
+    } else if (choice === 3) {
+      events.push({ ...base, type: 'node_updated', node: { id, label: `U${seq}` } });
+    } else if (choice === 4) {
+      events.push({
+        ...base,
+        type: 'edge_created',
+        edge: { id: `${id}-${other}`, kind: 'calls', from: id, to: other, status: 'active' },
+      });
+    } else {
+      events.push({
+        ...base,
+        type: 'edge_updated',
+        edge: { id: `${id}-${other}`, status: 'completed' },
+      });
+    }
+    if (next() < 0.1) events.push({ ...(events.at(-1) as GraphEvent), id: `dup${seq}` });
+  }
+  for (let index = events.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(next() * (index + 1));
+    [events[index], events[swap]] = [events[swap] as GraphEvent, events[index] as GraphEvent];
+  }
+  return events;
+}
+
+describe('reduceAll', () => {
+  it('matches folding reduce one event at a time, anomalies included', () => {
+    for (let seed = 0; seed < 25; seed += 1) {
+      const events = randomLog(seed, 300);
+      const stepwise: Anomaly[] = [];
+      let state = emptyState(RUN);
+      for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
+        state = reduce(state, event, { onAnomaly: (anomaly) => stepwise.push(anomaly) });
+      }
+      const folded: Anomaly[] = [];
+      const result = reduceAll(RUN, events, { onAnomaly: (anomaly) => folded.push(anomaly) });
+      expect(canonicalize(result)).toBe(canonicalize(state));
+      expect(result.seq).toBe(state.seq);
+      expect(folded).toEqual(stepwise);
+    }
+  });
+
+  it('never mutates its input events', () => {
+    const events = randomLog(7, 60);
+    const before = JSON.stringify(events);
+    reduceAll(RUN, events);
+    expect(JSON.stringify(events)).toBe(before);
   });
 });
