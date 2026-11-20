@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from axiongraph_core import (
     Anomaly,
     GraphEvent,
@@ -105,48 +107,38 @@ def _random_log(seed: int, length: int) -> list[GraphEvent]:
     for seq in range(1, length + 1):
         node_id, other = rng.choice(ids), rng.choice(ids)
         choice = rng.randrange(6)
-        base = {
+        base: dict[str, Any] = {
             "id": f"e{seq}",
             "runId": RUN if choice else "run_other",
             "seq": seq,
             "ts": "2026-06-03T00:00:00.000Z",
         }
         if choice in (1, 2):
-            events.append(
-                {
-                    **base,
-                    "type": "node_created",
-                    "node": {"id": node_id, "kind": "agent", "label": f"L{seq}"},
-                }
-            )
+            body: dict[str, Any] = {
+                "type": "node_created",
+                "node": {"id": node_id, "kind": "agent", "label": f"L{seq}"},
+            }
         elif choice == 3:
-            events.append(
-                {**base, "type": "node_updated", "node": {"id": node_id, "label": f"U{seq}"}}
-            )
+            body = {"type": "node_updated", "node": {"id": node_id, "label": f"U{seq}"}}
         elif choice == 4:
-            events.append(
-                {
-                    **base,
-                    "type": "edge_created",
-                    "edge": {
-                        "id": f"{node_id}-{other}",
-                        "kind": "calls",
-                        "from": node_id,
-                        "to": other,
-                        "status": "active",
-                    },
-                }
-            )
+            body = {
+                "type": "edge_created",
+                "edge": {
+                    "id": f"{node_id}-{other}",
+                    "kind": "calls",
+                    "from": node_id,
+                    "to": other,
+                    "status": "active",
+                },
+            }
         else:
-            events.append(
-                {
-                    **base,
-                    "type": "edge_updated",
-                    "edge": {"id": f"{node_id}-{other}", "status": "completed"},
-                }
-            )
+            body = {
+                "type": "edge_updated",
+                "edge": {"id": f"{node_id}-{other}", "status": "completed"},
+            }
+        events.append(cast("GraphEvent", {**base, **body}))
         if rng.random() < 0.1:  # a repeated seq, which the fold must ignore
-            events.append({**events[-1], "id": f"dup{seq}"})
+            events.append(cast("GraphEvent", {**events[-1], "id": f"dup{seq}"}))
     rng.shuffle(events)
     return events
 
