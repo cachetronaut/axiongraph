@@ -26,6 +26,9 @@ jobs:
         working-directory: py
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout Dockbay for Python sources
+        working-directory: .
+        run: git clone --depth 1 https://github.com/cachetronaut/dockbay.git ../dockbay
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"

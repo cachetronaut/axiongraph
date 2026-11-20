@@ -91,3 +91,77 @@ describe('validate', () => {
     expect(validate(bad, exampleVocabulary).ok).toBe(false);
   });
 });
+
+/** A seeded, shuffled log mixing creates, updates, updates to unknown ids, other runs and repeats. */
+function randomLog(seed: number, length: number): GraphEvent[] {
+  let state = seed + 1;
+  const next = () => {
+    state = (state * 16807) % 2147483647;
+    return state / 2147483647;
+  };
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
+  const ids = Array.from(
+    { length: Math.max(2, Math.floor(length / 4)) },
+    (_, index) => `n${index}`,
+  );
+  const events: GraphEvent[] = [];
+  for (let seq = 1; seq <= length; seq += 1) {
+    const id = pick(ids);
+    const other = pick(ids);
+    const choice = Math.floor(next() * 6);
+    const base = {
+      id: `e${seq}`,
+      runId: choice ? RUN : 'run_other',
+      seq,
+      ts: '2026-06-03T00:00:00.000Z',
+    };
+    if (choice === 1 || choice === 2) {
+      events.push({ ...base, type: 'node_created', node: { id, kind: 'agent', label: `L${seq}` } });
+    } else if (choice === 3) {
+      events.push({ ...base, type: 'node_updated', node: { id, label: `U${seq}` } });
+    } else if (choice === 4) {
+      events.push({
+        ...base,
+        type: 'edge_created',
+        edge: { id: `${id}-${other}`, kind: 'calls', from: id, to: other, status: 'active' },
+      });
+    } else {
+      events.push({
+        ...base,
+        type: 'edge_updated',
+        edge: { id: `${id}-${other}`, status: 'completed' },
+      });
+    }
+    if (next() < 0.1) events.push({ ...(events.at(-1) as GraphEvent), id: `dup${seq}` });
+  }
+  for (let index = events.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(next() * (index + 1));
+    [events[index], events[swap]] = [events[swap] as GraphEvent, events[index] as GraphEvent];
+  }
+  return events;
+}
+
+describe('reduceAll', () => {
+  it('matches folding reduce one event at a time, anomalies included', () => {
+    for (let seed = 0; seed < 25; seed += 1) {
+      const events = randomLog(seed, 300);
+      const stepwise: Anomaly[] = [];
+      let state = emptyState(RUN);
+      for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
+        state = reduce(state, event, { onAnomaly: (anomaly) => stepwise.push(anomaly) });
+      }
+      const folded: Anomaly[] = [];
+      const result = reduceAll(RUN, events, { onAnomaly: (anomaly) => folded.push(anomaly) });
+      expect(canonicalize(result)).toBe(canonicalize(state));
+      expect(result.seq).toBe(state.seq);
+      expect(folded).toEqual(stepwise);
+    }
+  });
+
+  it('never mutates its input events', () => {
+    const events = randomLog(7, 60);
+    const before = JSON.stringify(events);
+    reduceAll(RUN, events);
+    expect(JSON.stringify(events)).toBe(before);
+  });
+});

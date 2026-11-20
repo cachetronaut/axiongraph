@@ -33,61 +33,87 @@ def _report(on_anomaly: OnAnomaly | None, kind: AnomalyKind, event: GraphEvent) 
         on_anomaly(Anomaly(kind=kind, event=event))
 
 
-def reduce(state: GraphState, event: GraphEvent, on_anomaly: OnAnomaly | None = None) -> GraphState:
-    """Apply one event. Events for another run, or with a non-increasing ``seq``, are
-    ignored idempotently (spec D3). Updates to unknown ids are dropped (spec D6)."""
-    if event["runId"] != state.run_id:
-        _report(on_anomaly, "wrong_run", event)
-        return state
-    if event["seq"] <= state.seq:
-        _report(on_anomaly, "stale_seq", event)
-        return state
-
+def _apply(
+    nodes: dict[str, NodePayload],
+    edges: dict[str, EdgePayload],
+    seq: int,
+    event: GraphEvent,
+    on_anomaly: OnAnomaly | None,
+) -> int:
+    """Apply one in-order event for the run to ``nodes`` and ``edges`` in place; return the
+    resulting sequence. The single home of the reducer's rules, shared by ``reduce`` (on fresh
+    copies) and ``reduce_all`` (on one private copy for the whole fold)."""
     event_type = event["type"]
 
     if event_type == "node_created":
-        nodes = dict(state.nodes)
         node = cast(NodePayload, event["node"])
         nodes[node["id"]] = node
-        return replace(state, nodes=nodes, seq=event["seq"])
+        return event["seq"]
 
     if event_type == "node_updated":
         update = event["node"]
-        existing = state.nodes.get(update["id"])
+        existing = nodes.get(update["id"])
         if existing is None:
             _report(on_anomaly, "update_unknown_node", event)
-            return replace(state, seq=event["seq"])
-        nodes = dict(state.nodes)
-        nodes[update["id"]] = cast(NodePayload, {**existing, **update})
-        return replace(state, nodes=nodes, seq=event["seq"])
+        else:
+            nodes[update["id"]] = cast(NodePayload, {**existing, **update})
+        return event["seq"]
 
     if event_type == "edge_created":
-        edges = dict(state.edges)
         edge = cast(EdgePayload, event["edge"])
         edges[edge["id"]] = edge
-        return replace(state, edges=edges, seq=event["seq"])
+        return event["seq"]
 
     if event_type == "edge_updated":
         update = event["edge"]
-        existing = state.edges.get(update["id"])
+        existing = edges.get(update["id"])
         if existing is None:
             _report(on_anomaly, "update_unknown_edge", event)
-            return replace(state, seq=event["seq"])
-        edges = dict(state.edges)
-        edges[update["id"]] = cast(EdgePayload, {**existing, **update})
-        return replace(state, edges=edges, seq=event["seq"])
+        else:
+            edges[update["id"]] = cast(EdgePayload, {**existing, **update})
+        return event["seq"]
 
-    return state
+    return seq
+
+
+def _admit(run_id: str, seq: int, event: GraphEvent, on_anomaly: OnAnomaly | None) -> bool:
+    """Whether the event belongs to this run and comes after ``seq`` (spec D3)."""
+    if event["runId"] != run_id:
+        _report(on_anomaly, "wrong_run", event)
+        return False
+    if event["seq"] <= seq:
+        _report(on_anomaly, "stale_seq", event)
+        return False
+    return True
+
+
+def reduce(state: GraphState, event: GraphEvent, on_anomaly: OnAnomaly | None = None) -> GraphState:
+    """Apply one event. Events for another run, or with a non-increasing ``seq``, are
+    ignored idempotently (spec D3). Updates to unknown ids are dropped (spec D6)."""
+    if not _admit(state.run_id, state.seq, event, on_anomaly):
+        return state
+    if event["type"] not in ("node_created", "node_updated", "edge_created", "edge_updated"):
+        return state
+    nodes, edges = dict(state.nodes), dict(state.edges)
+    seq = _apply(nodes, edges, state.seq, event, on_anomaly)
+    return replace(state, nodes=nodes, edges=edges, seq=seq)
 
 
 def reduce_all(
     run_id: str, events: Iterable[GraphEvent], on_anomaly: OnAnomaly | None = None
 ) -> GraphState:
-    """Fold an event log into state. Sorted by ``seq`` first, so arrival order does not matter."""
-    state = empty_state(run_id)
+    """Fold an event log into state. Sorted by ``seq`` first, so arrival order does not matter.
+
+    Equivalent to folding with ``reduce`` one event at a time, but linear in the log's length:
+    the fold applies every event to one private copy of the maps instead of copying them per
+    event."""
+    nodes: dict[str, NodePayload] = {}
+    edges: dict[str, EdgePayload] = {}
+    seq = 0
     for event in sorted(events, key=lambda candidate: candidate["seq"]):
-        state = reduce(state, event, on_anomaly)
-    return state
+        if _admit(run_id, seq, event, on_anomaly):
+            seq = _apply(nodes, edges, seq, event, on_anomaly)
+    return GraphState(run_id=run_id, nodes=nodes, edges=edges, seq=seq)
 
 
 def subgraph(state: GraphState, keep_node: Callable[[NodePayload], bool]) -> GraphState:
