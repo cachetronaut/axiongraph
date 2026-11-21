@@ -11,13 +11,41 @@ from typing import cast
 
 from axiongraph_core import GraphEvent, GraphState, reduce_all
 
+# SQLite's journal modes (https://sqlite.org/pragma.html#pragma_journal_mode).
+JOURNAL_MODES = frozenset({"delete", "truncate", "persist", "memory", "wal", "off"})
+
 
 class SqliteStore:
     """A :class:`~axiongraph_core.GraphStore` persisted to a single SQLite database file."""
 
-    def __init__(self, location: str = ":memory:") -> None:
-        """``location`` is a file path, or ``":memory:"`` (default) for an ephemeral database."""
-        self._db = sqlite3.connect(location)
+    def __init__(
+        self, location: str = ":memory:", *, journal_mode: str | None = None, timeout: float = 5.0
+    ) -> None:
+        """``location`` is a file path, or ``":memory:"`` (default) for an ephemeral database.
+
+        ``journal_mode`` sets SQLite's journal mode when the store opens: ``"wal"`` lets readers
+        in other connections or processes keep reading while ``append`` commits, rather than the
+        commit waiting for them. ``None`` (default) leaves the database's current mode. Changing
+        the mode needs the database to itself, so it raises ``sqlite3.OperationalError`` while
+        another connection holds it. An in-memory database stays in ``"memory"`` mode for any
+        other request, but takes ``"off"``. ``"off"`` disables the rollback journal, so a failed
+        or interrupted ``append`` may leave the database inconsistent. ``journal_mode`` (the
+        attribute) reports the mode in effect.
+
+        ``timeout`` is how many seconds a statement waits for another connection's lock before
+        raising ``sqlite3.OperationalError`` (``sqlite3.connect``'s own default). ``0`` never
+        waits, for example to try a journal-mode change without blocking.
+        """
+        if journal_mode is not None and journal_mode not in JOURNAL_MODES:
+            raise ValueError(f"journal_mode must be one of {sorted(JOURNAL_MODES)} or None")
+        self._db = sqlite3.connect(location, timeout=timeout)
+        try:
+            if journal_mode is not None:
+                self._db.execute(f"PRAGMA journal_mode={journal_mode}")
+            self.journal_mode: str = self._db.execute("PRAGMA journal_mode").fetchone()[0]
+        except BaseException:
+            self._db.close()
+            raise
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS events ("
             "  run_id  TEXT    NOT NULL,"
